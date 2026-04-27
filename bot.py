@@ -147,13 +147,14 @@ async def run_image_generation(message: types.Message, prompt: str):
         enhancer_prompt = (
             f"You are a world-class prompt engineer for Flux/Midjourney. "
             f"Analyze the following user prompt: '{prompt}'. "
-            f"Identify the main subject (Car, Person, Landscape, or Object). "
-            f"Rewrite it as a highly detailed, cinematic masterpiece prompt. "
-            f"If it is a car: focus on paint reflections, aggressive stance, motion blur, and wheel details. "
-            f"If it is a person: focus on skin texture, sharp eyes, and realistic lighting. "
-            f"If it is an object: focus on texture and macro details. "
-            f"ALWAYS preserve the exact subject and DO NOT add humans/buildings unless they were in the original prompt. "
-            f"Output ONLY the final prompt text."
+            f"Rewrite it into a professional, cinematic masterpiece prompt. "
+            f"CRITICAL RULES:\n"
+            f"1. SUBJECT FOCUS: Maintain the exact subject. If it's a workstation/desk, show the whole desk in a cinematic wide shot.\n"
+            f"2. COMPOSITION: Use 'Cinematic Wide Shot', 'Product Photography', 'Elegant Lighting'. Avoid extreme macro/close-ups unless the user explicitly asked for a small detail.\n"
+            f"3. LUXURY AESTHETIC: Focus on high-end materials, reflections, and sophisticated ambient lighting (volumetric, sapphire glow).\n"
+            f"4. FACIALS: If a person is present, focus on skin texture and realistic eyes. No distortions.\n"
+            f"5. NO ADDITIONS: Do not add humans, buildings, or elements not mentioned in the original text.\n"
+            f"Output ONLY the final enhanced prompt text."
         )
         enhanced_res = ai_model.generate_content(enhancer_prompt)
         enhanced_prompt = enhanced_res.text.strip()
