@@ -15,7 +15,12 @@ async def run_bot():
     print("Bot is starting...")
     await dp.start_polling(bot)
 
+from database import init_db
+
 async def main():
+    # Initialize the permanent database
+    init_db()
+    
     # Run both at the same time
     await asyncio.gather(
         run_api(),

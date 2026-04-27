@@ -7,7 +7,7 @@ from aiogram.types import LabeledPrice, PreCheckoutQuery, ReplyKeyboardMarkup, K
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from config import BOT_TOKEN, GEMINI_API_KEY, STRIPE_TOKEN, PAYME_TOKEN, CLICK_TOKEN, MY_CARD_NUMBER, SUBSCRIPTION_PRICE_UZS
+from config import BOT_TOKEN, ADMIN_ID, GEMINI_API_KEY, PAYME_TOKEN, CLICK_TOKEN, MY_CARD_NUMBER, MY_VISA_CARD_NUMBER, SUBSCRIPTION_PRICE_UZS, SUBSCRIPTION_PRICE_USD
 from database import init_db, add_user, set_premium, is_premium, set_user_language, get_user_language, create_transaction, save_generation, get_user_generations
 from strings import LOCALIZED_STRINGS
 
@@ -102,7 +102,8 @@ async def cmd_buy(message: types.Message):
     s = get_strings(message.from_user.id)
     markup = types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [types.InlineKeyboardButton(text="Uzbekistan (Card Transfer)", callback_data="pay_manual")]
+            [types.InlineKeyboardButton(text="🇺🇿 Uzbekistan (Uzcard / Humo)", callback_data="pay_manual")],
+            [types.InlineKeyboardButton(text="💳 Visa / Mastercard (Manual)", callback_data="pay_visa_manual")]
         ]
     )
     await message.answer(s["buy_prompt"], reply_markup=markup)
@@ -264,6 +265,12 @@ async def process_payment_selection(callback: types.CallbackQuery):
     s = get_strings(user_id)
     gateway = callback.data.split("_")[1]
     
+    if gateway == "visa":
+        info = s["manual_visa_info"].format(amount=SUBSCRIPTION_PRICE_USD, card=MY_VISA_CARD_NUMBER)
+        await callback.message.answer(info, parse_mode="Markdown")
+        await callback.answer()
+        return
+
     if gateway == "manual":
         comment_id = str(random.randint(100000, 999999))
         create_transaction(user_id, comment_id, SUBSCRIPTION_PRICE_UZS)
@@ -460,6 +467,42 @@ async def process_direct_prompt(message: types.Message, state: FSMContext):
     prompt = message.text
     await state.clear()
     await run_image_generation(message, prompt)
+
+@dp.message(Command("setpremium"))
+async def cmd_set_premium(message: types.Message):
+    """Admin command to manually set premium for a user"""
+    if message.from_user.id != ADMIN_ID:
+        return
+        
+    try:
+        parts = message.text.split()
+        if len(parts) < 2:
+            await message.answer("Usage: `/setpremium <user_id>`", parse_mode="Markdown")
+            return
+            
+        target_id = int(parts[1])
+        set_premium(target_id, True)
+        await message.answer(f"✅ User `{target_id}` has been elevated to Premium status.", parse_mode="Markdown")
+        
+        # Notify the user
+        try:
+            await bot.send_message(target_id, "💎 *Premium Activated:* Your account has been manually upgraded by the administrator. Welcome to LuxePrompt AI!", parse_mode="Markdown")
+        except: pass
+    except Exception as e:
+        await message.answer(f"Error: {e}")
+
+@dp.pre_checkout_query()
+async def process_pre_checkout_query(pre_checkout_query: PreCheckoutQuery):
+    """Confirm the checkout query"""
+    await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+
+@dp.message(F.successful_payment)
+async def process_successful_payment(message: types.Message):
+    """Handle successful automated payment"""
+    user_id = message.from_user.id
+    set_premium(user_id, True)
+    s = get_strings(user_id)
+    await message.answer("💎 *Payment Confirmed!* Welcome to the elite tier of LuxePrompt AI. Your premium status has been activated.", parse_mode="Markdown")
 
 @dp.message(F.text)
 async def handle_text(message: types.Message):

@@ -1,7 +1,8 @@
 from fastapi import FastAPI, Header
 from fastapi.middleware.cors import CORSMiddleware
-import sqlite3
-from config import DB_PATH
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from config import DATABASE_URL
 import uvicorn
 
 app = FastAPI()
@@ -9,46 +10,48 @@ app = FastAPI()
 # Allow your gallery to talk to this API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, replace with your GitHub Pages URL
+    allow_origins=["*"], 
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(DATABASE_URL)
     return conn
 
 @app.get("/api/gallery/{user_id}")
 async def get_gallery(user_id: int):
     conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id, prompt, image_url, is_public FROM generations WHERE user_id = ? ORDER BY timestamp DESC", (user_id,))
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT id, prompt, image_url, is_public FROM generations WHERE user_id = %s ORDER BY timestamp DESC", (user_id,))
     rows = cur.fetchall()
+    cur.close()
     conn.close()
-    return [dict(row) for row in rows]
+    return rows
 
 @app.get("/api/masterpieces")
 async def get_masterpieces():
     conn = get_db_connection()
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute('''
         SELECT g.id, g.prompt, g.image_url, u.full_name, u.username 
         FROM generations g
         JOIN users u ON g.user_id = u.user_id
-        WHERE g.is_public = 1
+        WHERE g.is_public = true
         ORDER BY g.timestamp DESC
     ''')
     rows = cur.fetchall()
+    cur.close()
     conn.close()
-    return [dict(row) for row in rows]
+    return rows
 
 @app.post("/api/make-public/{gen_id}")
 async def make_public(gen_id: int):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("UPDATE generations SET is_public = 1 WHERE id = ?", (gen_id,))
+    cur.execute("UPDATE generations SET is_public = true WHERE id = %s", (gen_id,))
     conn.commit()
+    cur.close()
     conn.close()
     return {"status": "success"}
 
@@ -56,8 +59,9 @@ async def make_public(gen_id: int):
 async def make_private(gen_id: int):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("UPDATE generations SET is_public = 0 WHERE id = ?", (gen_id,))
+    cur.execute("UPDATE generations SET is_public = false WHERE id = %s", (gen_id,))
     conn.commit()
+    cur.close()
     conn.close()
     return {"status": "success"}
 
@@ -65,8 +69,9 @@ async def make_private(gen_id: int):
 async def delete_image(gen_id: int):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("DELETE FROM generations WHERE id = ?", (gen_id,))
+    cur.execute("DELETE FROM generations WHERE id = %s", (gen_id,))
     conn.commit()
+    cur.close()
     conn.close()
     return {"status": "success"}
 
