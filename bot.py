@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import random
+import aiohttp
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import LabeledPrice, PreCheckoutQuery, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
@@ -66,7 +67,7 @@ async def cmd_start(message: types.Message):
         ]
     )
     
-    await message.answer("Please select your preferred language / Iltimos, tilni tanlang:", reply_markup=markup)
+    await message.answer("Please select your preferred language:/ Iltimos, tilni tanlang:", reply_markup=markup)
 
 @dp.callback_query(F.data.startswith("lang_"))
 async def process_language_selection(callback: types.CallbackQuery):
@@ -86,7 +87,9 @@ async def process_language_selection(callback: types.CallbackQuery):
         f"{s['premium']}"
     )
     
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except: pass
     await bot.send_photo(
         chat_id=callback.message.chat.id,
         photo=welcome_photo,
@@ -127,33 +130,39 @@ async def run_image_generation(message: types.Message, prompt: str):
     premium = is_premium(user_id)
     
     if premium:
-        wait_time = 15
-        await message.answer(s["premium_wait"], parse_mode="Markdown")
+        wait_time = 5
+        await message.answer(s["premium_wait"], parse_mode="HTML")
     else:
         # Check nudges for free users
         gens = get_user_generations(user_id)
         if len(gens) == 3:
-            await message.answer("💎 *Level Up:* You have a great eye for design. Upgrade to Premium now to skip the 2-minute wait and unlock 4K Ultra Analysis. Use /buy", parse_mode="Markdown")
+            await message.answer("💎 <b>Level Up:</b> You have a great eye for design. Upgrade to Premium now to skip the 2-minute wait and unlock 4K Ultra Analysis. Use /buy", parse_mode="HTML")
         
         wait_time = 150
-        status_msg = await message.answer(f"{s['progress_prefix']} [░░░░░░░░░░] 0%", parse_mode="Markdown")
+        status_msg = await message.answer(f"{s['progress_prefix']} [░░░░░░░░░░] 0%", parse_mode="HTML")
     
     # --- DIRECTOR MODE: Refining the prompt ---
-    director_msg = await message.answer(s["director_mode"], parse_mode="Markdown")
+    director_msg = await message.answer(s["director_mode"], parse_mode="HTML")
     try:
         enhancer_prompt = (
-            f"Rewrite the following image generation prompt to be a cinematic masterpiece. "
-            f"Focus intensely on high-fidelity facial details, sharp clear eyes, and flawless anatomical correctness. "
-            f"Ensure the subject's face is rendered with extreme precision and realism. "
-            f"Include sophisticated lighting (chiaroscuro, volumetric), 8k resolution, and professional photography aesthetics. "
-            f"Avoid distorted features, blurred faces, or multiple subjects unless specified. "
-            f"Output ONLY the enhanced prompt text. Original prompt: {prompt}"
+            f"You are a world-class prompt engineer for Flux/Midjourney. "
+            f"Analyze the following user prompt: '{prompt}'. "
+            f"Identify the main subject (Car, Person, Landscape, or Object). "
+            f"Rewrite it as a highly detailed, cinematic masterpiece prompt. "
+            f"If it is a car: focus on paint reflections, aggressive stance, motion blur, and wheel details. "
+            f"If it is a person: focus on skin texture, sharp eyes, and realistic lighting. "
+            f"If it is an object: focus on texture and macro details. "
+            f"ALWAYS preserve the exact subject and DO NOT add humans/buildings unless they were in the original prompt. "
+            f"Output ONLY the final prompt text."
         )
         enhanced_res = ai_model.generate_content(enhancer_prompt)
         enhanced_prompt = enhanced_res.text.strip()
     except:
         enhanced_prompt = prompt # Fallback
-    await director_msg.delete()
+    
+    try:
+        await director_msg.delete()
+    except: pass
 
     # --- PROGRESS BAR logic (for free users) ---
     if not premium:
@@ -164,7 +173,7 @@ async def run_image_generation(message: types.Message, prompt: str):
             bar_len = i * 2
             bar = "█" * bar_len + "░" * (10 - bar_len)
             try:
-                await status_msg.edit_text(f"{s['progress_prefix']} [{bar}] {progress}%", parse_mode="Markdown")
+                await status_msg.edit_text(f"{s['progress_prefix']} [{bar}] {progress}%", parse_mode="HTML")
             except: pass
     else:
         await asyncio.sleep(wait_time)
@@ -177,6 +186,15 @@ async def run_image_generation(message: types.Message, prompt: str):
         # Save to Gallery Database
         save_generation(user_id, prompt, enhanced_prompt, image_url)
         
+        # Download image to avoid "failed to get HTTP URL content" error
+        async with aiohttp.ClientSession() as session:
+            async with session.get(image_url, timeout=60) as response:
+                if response.status == 200:
+                    image_data = await response.read()
+                    photo = types.BufferedInputFile(image_data, filename="masterpiece.jpg")
+                else:
+                    photo = image_url # Fallback
+        
         # Markup for Gallery and Archive
         gallery_url = "https://azizcodes1.github.io/telegbot/gallery.html"
         markup = types.InlineKeyboardMarkup(
@@ -188,16 +206,22 @@ async def run_image_generation(message: types.Message, prompt: str):
         )
         
         caption_footer = "💎 Premium" if premium else "⚪ Standard"
-        safe_enhanced = enhanced_prompt.replace("_", "\\_").replace("*", "\\*")
+        
+        import html
+        escaped_prompt = html.escape(enhanced_prompt)
+        
         await bot.send_photo(
             chat_id=message.chat.id,
-            photo=image_url,
-            caption=f"🎥 *Director Refinement:*\n_{safe_enhanced[:800]}_\n\n*Tier:* {caption_footer}",
-            parse_mode="Markdown",
+            photo=photo,
+            caption=f"🎥 <b>Director Refinement:</b>\n<i>{escaped_prompt[:800]}</i>\n\n<b>Tier:</b> {caption_footer}",
+            parse_mode="HTML",
             reply_markup=markup
         )
+        
         if not premium:
-            await status_msg.delete()
+            try:
+                await status_msg.delete()
+            except: pass
     except Exception as e:
         logging.error(f"Image generation error: {e}")
         await message.answer(s["error"])
@@ -214,7 +238,7 @@ async def cmd_gallery(message: types.Message):
             [types.InlineKeyboardButton(text=s["view_gallery"], web_app=types.WebAppInfo(url=gallery_url))]
         ]
     )
-    await message.answer(f"✨ *LuxeArchive:* {s['view_gallery']}", reply_markup=markup, parse_mode="Markdown")
+    await message.answer(f"✨ <b>LuxeArchive:</b> {s['view_gallery']}", reply_markup=markup, parse_mode="HTML")
 
 @dp.callback_query(F.data == "open_gallery")
 async def cb_open_gallery(callback: types.CallbackQuery):
@@ -244,12 +268,13 @@ async def cb_publish_last(callback: types.CallbackQuery):
     CHANNEL_ID = "@LuxePrompt_Gallery" 
     
     try:
-        safe_vision = last_gen[0].replace("_", "\\_").replace("*", "\\*")
+        import html
+        escaped_vision = html.escape(last_gen[0])
         await bot.send_photo(
             chat_id=CHANNEL_ID,
             photo=last_gen[1],
-            caption=f"🏆 *Global Showcase Spotlight*\n\n_Refined Vision:_\n{safe_vision}\n\n✨ Created via @LuxePromptBot",
-            parse_mode="Markdown"
+            caption=f"🏆 <b>Global Showcase Spotlight</b>\n\n<i>Refined Vision:</i>\n{escaped_vision}\n\n✨ Created via @LuxePromptBot",
+            parse_mode="HTML"
         )
         await callback.message.answer("💎 Your masterpiece has been published to the Global Channel!")
     except Exception as e:
@@ -325,8 +350,8 @@ async def process_admin_activation(callback: types.CallbackQuery):
         
         # Notify Admin
         await callback.message.edit_text(
-            callback.message.text + "\n\n✅ *SUCCESS:* Premium has been activated for this user.",
-            parse_mode="Markdown"
+            callback.message.text + "\n\n✅ <b>SUCCESS:</b> Premium has been activated for this user.",
+            parse_mode="HTML"
         )
         
         # Notify User
@@ -528,6 +553,39 @@ async def process_direct_prompt(message: types.Message, state: FSMContext):
     await state.clear()
     await run_image_generation(message, prompt)
 
+@dp.message(Command("stats"))
+async def cmd_stats(message: types.Message):
+    """Admin command to view user statistics"""
+    if message.from_user.id != ADMIN_ID:
+        return
+        
+    try:
+        from database import get_conn
+        conn = get_conn()
+        cur = conn.cursor()
+        
+        cur.execute("SELECT COUNT(*) FROM users")
+        total_users = cur.fetchone()[0]
+        
+        cur.execute("SELECT COUNT(*) FROM users WHERE is_premium = true")
+        premium_users = cur.fetchone()[0]
+        
+        cur.execute("SELECT COUNT(*) FROM generations")
+        total_gens = cur.fetchone()[0]
+        
+        cur.close()
+        conn.close()
+        
+        stats_text = (
+            "📊 <b>LuxePrompt AI Statistics</b>\n\n"
+            f"👥 Total Users: <code>{total_users}</code>\n"
+            f"💎 Premium Users: <code>{premium_users}</code>\n"
+            f"🎨 Total Generations: <code>{total_gens}</code>\n"
+        )
+        await message.answer(stats_text, parse_mode="HTML")
+    except Exception as e:
+        await message.answer(f"Error fetching stats: {e}")
+
 @dp.message(Command("setpremium"))
 async def cmd_set_premium(message: types.Message):
     """Admin command to manually set premium for a user"""
@@ -578,7 +636,7 @@ async def handle_text(message: types.Message):
         await message.answer(response.text)
     except ResourceExhausted:
         logging.error("Gemini Quota Exceeded")
-        await message.answer("✨ *Concierge Notice:* Our digital atelier is currently operating at full capacity. Please allow a few moments before or restart bot with /start command")
+        await message.answer("✨ <b>Concierge Notice:</b> Our digital atelier is currently operating at full capacity. Please allow a few moments before trying again or use /start to refresh.")
     except Exception as e:
         logging.error(f"Error generating text: {e}")
         s = get_strings(user_id)

@@ -49,11 +49,11 @@ async def handle_card_xabar(event):
             # 4. Notify the user via the Main Bot
             try:
                 success_msg = (
-                    "💳 *Payment Verified Successfully!*\n\n"
+                    "💳 <b>Payment Verified Successfully!</b>\n\n"
                     "Your Uzcard/Humo transfer has been detected. Your account has "
-                    "been upgraded to the *Modern Luxury Premium Tier* instantly."
+                    "been upgraded to the <b>Modern Luxury Premium Tier</b> instantly."
                 )
-                await bot.send_message(user_id, success_msg, parse_mode="Markdown")
+                await bot.send_message(user_id, success_msg, parse_mode="HTML")
             except Exception as e:
                 logging.error(f"Failed to notify user {user_id}: {e}")
         else:
