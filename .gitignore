@@ -7,11 +7,12 @@ __pycache__/
 
 # Sensitive Info
 .env
+config.py
 luxe_session.session
 luxe_session.session-journal
 
-# Database (Optional: ignore if you want a clean start on server)
-# bot.sqlite3
+# Database
+bot.sqlite3
 
 # Logs
 logs/
