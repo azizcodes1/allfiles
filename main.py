@@ -1,4 +1,5 @@
 import asyncio
+import os
 import uvicorn
 from api import app as fastapi_app
 from bot import dp, bot
@@ -6,7 +7,8 @@ import multiprocessing
 
 async def run_api():
     # Runs the FastAPI server
-    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=port)
     server = uvicorn.Server(config)
     await server.serve()
 
