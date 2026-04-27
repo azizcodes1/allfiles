@@ -1,0 +1,22 @@
+# Virtual Environment
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+
+# Sensitive Info
+.env
+luxe_session.session
+luxe_session.session-journal
+
+# Database (Optional: ignore if you want a clean start on server)
+# bot.sqlite3
+
+# Logs
+logs/
+*.log
+
+# IDEs
+.vscode/
+.idea/
