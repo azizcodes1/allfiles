@@ -1,6 +1,6 @@
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from config import DATABASE_URL
+from config import DATABASE_URL, ADMIN_ID
 import logging
 
 def get_conn():
@@ -96,7 +96,7 @@ def set_premium(user_id, status=True):
 def is_premium(user_id):
     """Check if a user has premium status."""
     # Admin Overrides
-    if user_id == 6437879950: 
+    if user_id == ADMIN_ID: 
         return True
     
     conn = get_conn()

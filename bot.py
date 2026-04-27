@@ -102,8 +102,8 @@ async def cmd_buy(message: types.Message):
     s = get_strings(message.from_user.id)
     markup = types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [types.InlineKeyboardButton(text="🇺🇿 Uzbekistan (Uzcard / Humo)", callback_data="pay_manual")],
-            [types.InlineKeyboardButton(text="💳 Visa / Mastercard (Manual)", callback_data="pay_visa_manual")]
+            [types.InlineKeyboardButton(text=s["pay_uzb"], callback_data="pay_manual")],
+            [types.InlineKeyboardButton(text=s["pay_visa"], callback_data="pay_visa_manual")]
         ]
     )
     await message.answer(s["buy_prompt"], reply_markup=markup)
@@ -265,20 +265,45 @@ async def process_payment_selection(callback: types.CallbackQuery):
     s = get_strings(user_id)
     gateway = callback.data.split("_")[1]
     
-    if gateway == "visa":
-        info = s["manual_visa_info"].format(amount=SUBSCRIPTION_PRICE_USD, card=MY_VISA_CARD_NUMBER)
-        await callback.message.answer(info, parse_mode="Markdown")
-        await callback.answer()
-        return
+    try:
+        if gateway == "visa":
+            # Log as a manual transaction in DB for admin reference
+            comment_id = f"VISA_{random.randint(100000, 999999)}"
+            create_transaction(user_id, comment_id, SUBSCRIPTION_PRICE_USD)
+            
+            info = s["manual_visa_info"].format(amount=SUBSCRIPTION_PRICE_USD, card=MY_VISA_CARD_NUMBER)
+            await callback.message.answer(info, parse_mode="Markdown")
+            await callback.answer()
+            
+            # Notify admin that a Visa payment was initiated
+            try:
+                username = callback.from_user.username or "N/A"
+                full_name = callback.from_user.full_name or "N/A"
+                admin_msg = (
+                    f"💳 *New Visa Payment Initiated*\n\n"
+                    f"👤 User: [{full_name}](tg://user?id={user_id})\n"
+                    f"🆔 ID: `{user_id}`\n"
+                    f"🔖 Username: @{username}\n"
+                    f"💰 Amount: *${SUBSCRIPTION_PRICE_USD} USD*\n\n"
+                    f"Activate with: `/setpremium {user_id}`"
+                )
+                await bot.send_message(ADMIN_ID, admin_msg, parse_mode="Markdown")
+            except Exception as notify_err:
+                logging.warning(f"Could not notify admin: {notify_err}")
+            return
 
-    if gateway == "manual":
-        comment_id = str(random.randint(100000, 999999))
-        create_transaction(user_id, comment_id, SUBSCRIPTION_PRICE_UZS)
-        
-        info = s["manual_info"].format(amount=SUBSCRIPTION_PRICE_UZS, card=MY_CARD_NUMBER, comment=comment_id)
-        await callback.message.answer(info, parse_mode="Markdown")
-        await callback.answer()
-        return
+        if gateway == "manual":
+            comment_id = str(random.randint(100000, 999999))
+            create_transaction(user_id, comment_id, SUBSCRIPTION_PRICE_UZS)
+            
+            info = s["manual_info"].format(amount=SUBSCRIPTION_PRICE_UZS, card=MY_CARD_NUMBER, comment=comment_id)
+            await callback.message.answer(info, parse_mode="Markdown")
+            await callback.answer()
+            return
+    except Exception as e:
+        logging.error(f"Payment selection error: {e}")
+        await callback.answer("An elegant interruption occurred. Please contact support.", show_alert=True)
+
 
 @dp.message(ImageStates.entering_reference, F.photo)
 async def handle_photo(message: types.Message, state: FSMContext):
