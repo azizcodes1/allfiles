@@ -79,10 +79,10 @@ async def process_language_selection(callback: types.CallbackQuery):
     
     welcome_photo = "https://images.unsplash.com/photo-1614850523459-c2f4c699c52e?q=80&w=2670&auto=format&fit=crop"
     welcome_text = (
-        f"✨ *{s['welcome']} to LuxePrompt AI* ✨\n\n"
+        f"✨ <b>{s['welcome']} to LuxePrompt AI</b> ✨\n\n"
         f"{s['desc']}\n\n"
         f"{s['create']}\n"
-        f"Example: `/image A futuristic gold-plated workstation`\n\n"
+        f"Example: <code>/image A futuristic gold-plated workstation</code>\n\n"
         f"{s['premium']}"
     )
     
@@ -91,7 +91,7 @@ async def process_language_selection(callback: types.CallbackQuery):
         chat_id=callback.message.chat.id,
         photo=welcome_photo,
         caption=welcome_text,
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=get_main_menu(user_id)
     )
     await callback.answer()
@@ -272,7 +272,7 @@ async def process_payment_selection(callback: types.CallbackQuery):
             create_transaction(user_id, comment_id, SUBSCRIPTION_PRICE_USD)
             
             info = s["manual_visa_info"].format(amount=SUBSCRIPTION_PRICE_USD, card=MY_VISA_CARD_NUMBER)
-            await callback.message.answer(info, parse_mode="Markdown")
+            await callback.message.answer(info, parse_mode="HTML")
             await callback.answer()
             
             # Notify admin that a Visa payment was initiated
@@ -280,14 +280,22 @@ async def process_payment_selection(callback: types.CallbackQuery):
                 username = callback.from_user.username or "N/A"
                 full_name = callback.from_user.full_name or "N/A"
                 admin_msg = (
-                    f"💳 *New Visa Payment Initiated*\n\n"
-                    f"👤 User: [{full_name}](tg://user?id={user_id})\n"
-                    f"🆔 ID: `{user_id}`\n"
+                    f"💳 <b>New Visa Payment Initiated</b>\n\n"
+                    f"👤 User: <a href='tg://user?id={user_id}'>{full_name}</a>\n"
+                    f"🆔 ID: <code>{user_id}</code>\n"
                     f"🔖 Username: @{username}\n"
-                    f"💰 Amount: *${SUBSCRIPTION_PRICE_USD} USD*\n\n"
-                    f"Activate with: `/setpremium {user_id}`"
+                    f"💰 Amount: <b>${SUBSCRIPTION_PRICE_USD} USD</b>\n\n"
+                    f"Once you receive the screenshot at @vm_aziz, click below to activate:"
                 )
-                await bot.send_message(ADMIN_ID, admin_msg, parse_mode="Markdown")
+                
+                # Inline button for instant activation
+                markup = types.InlineKeyboardMarkup(
+                    inline_keyboard=[[
+                        types.InlineKeyboardButton(text="✅ Activate Premium", callback_data=f"activate_{user_id}")
+                    ]]
+                )
+                
+                await bot.send_message(ADMIN_ID, admin_msg, parse_mode="HTML", reply_markup=markup)
             except Exception as notify_err:
                 logging.warning(f"Could not notify admin: {notify_err}")
             return
@@ -297,12 +305,39 @@ async def process_payment_selection(callback: types.CallbackQuery):
             create_transaction(user_id, comment_id, SUBSCRIPTION_PRICE_UZS)
             
             info = s["manual_info"].format(amount=SUBSCRIPTION_PRICE_UZS, card=MY_CARD_NUMBER, comment=comment_id)
-            await callback.message.answer(info, parse_mode="Markdown")
+            await callback.message.answer(info, parse_mode="HTML")
             await callback.answer()
             return
     except Exception as e:
         logging.error(f"Payment selection error: {e}")
         await callback.answer("An elegant interruption occurred. Please contact support.", show_alert=True)
+
+@dp.callback_query(F.data.startswith("activate_"))
+async def process_admin_activation(callback: types.CallbackQuery):
+    """Handle instant premium activation from admin notification"""
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("Unauthorized.", show_alert=True)
+        return
+        
+    try:
+        target_id = int(callback.data.split("_")[1])
+        set_premium(target_id, True)
+        
+        # Notify Admin
+        await callback.message.edit_text(
+            callback.message.text + "\n\n✅ *SUCCESS:* Premium has been activated for this user.",
+            parse_mode="Markdown"
+        )
+        
+        # Notify User
+        try:
+            await bot.send_message(target_id, "💎 *Premium Activated:* Your account has been upgraded to the *Modern Luxury Tier*. Welcome back!", parse_mode="Markdown")
+        except: pass
+        
+        await callback.answer("User activated successfully!")
+    except Exception as e:
+        logging.error(f"Activation error: {e}")
+        await callback.answer("Failed to activate user.")
 
 
 @dp.message(ImageStates.entering_reference, F.photo)
@@ -354,7 +389,7 @@ async def handle_photo(message: types.Message, state: FSMContext):
 async def menu_support(message: types.Message):
     """Handle Support button from menu"""
     s = get_strings(message.from_user.id)
-    await message.answer(s["support_msg"], parse_mode="Markdown")
+    await message.answer(s["support_msg"], parse_mode="HTML")
 
 @dp.message(F.text.in_([LOCALIZED_STRINGS["uz"]["menu_gallery"], LOCALIZED_STRINGS["ru"]["menu_gallery"], LOCALIZED_STRINGS["en"]["menu_gallery"]]))
 async def menu_gallery(message: types.Message):
@@ -425,7 +460,7 @@ async def process_idea_description(message: types.Message, state: FSMContext):
     s = get_strings(message.from_user.id)
     user_idea = message.text
     
-    status_msg = await message.answer(s["thinking"], parse_mode="Markdown")
+    status_msg = await message.answer(s["thinking"], parse_mode="HTML")
     
     try:
         enhancer_prompt = (
@@ -458,10 +493,10 @@ async def process_idea_description(message: types.Message, state: FSMContext):
         
         await status_msg.delete()
         safe_upgraded = upgraded_prompt.replace("_", "\\_").replace("*", "\\*")
-        await message.answer(f"{s['refined_vision']}\n\n_{safe_upgraded}_", parse_mode="Markdown", reply_markup=markup)
+        await message.answer(f"{s['refined_vision']}\n\n<i>{safe_upgraded}</i>", parse_mode="HTML", reply_markup=markup)
     except ResourceExhausted:
         logging.error("Gemini Quota Exceeded")
-        await status_msg.edit_text("✨ *Concierge Notice:* Our digital atelier is currently operating at full capacity. Please allow a few moments before your next request.")
+        await status_msg.edit_text("✨ <b>Concierge Notice:</b> Our digital atelier is currently operating at full capacity. Please allow a few moments before your next request.", parse_mode="HTML")
     except Exception as e:
         logging.error(f"Error in idea generation: {e}")
         await status_msg.edit_text(s["error"])
@@ -502,16 +537,16 @@ async def cmd_set_premium(message: types.Message):
     try:
         parts = message.text.split()
         if len(parts) < 2:
-            await message.answer("Usage: `/setpremium <user_id>`", parse_mode="Markdown")
+            await message.answer("Usage: <code>/setpremium &lt;user_id&gt;</code>", parse_mode="HTML")
             return
             
         target_id = int(parts[1])
         set_premium(target_id, True)
-        await message.answer(f"✅ User `{target_id}` has been elevated to Premium status.", parse_mode="Markdown")
+        await message.answer(f"✅ User <code>{target_id}</code> has been elevated to Premium status.", parse_mode="HTML")
         
         # Notify the user
         try:
-            await bot.send_message(target_id, "💎 *Premium Activated:* Your account has been manually upgraded by the administrator. Welcome to LuxePrompt AI!", parse_mode="Markdown")
+            await bot.send_message(target_id, "💎 <b>Premium Activated:</b> Your account has been manually upgraded by the administrator. Welcome to LuxePrompt AI!", parse_mode="HTML")
         except: pass
     except Exception as e:
         await message.answer(f"Error: {e}")
@@ -527,7 +562,7 @@ async def process_successful_payment(message: types.Message):
     user_id = message.from_user.id
     set_premium(user_id, True)
     s = get_strings(user_id)
-    await message.answer("💎 *Payment Confirmed!* Welcome to the elite tier of LuxePrompt AI. Your premium status has been activated.", parse_mode="Markdown")
+    await message.answer("💎 <b>Payment Confirmed!</b> Welcome to the elite tier of LuxePrompt AI. Your premium status has been activated.", parse_mode="HTML")
 
 @dp.message(F.text)
 async def handle_text(message: types.Message):
