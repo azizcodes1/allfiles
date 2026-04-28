@@ -117,20 +117,23 @@ async def cmd_imagine(message: types.Message):
     prompt = message.text.replace("/imagine", "").replace("/image", "").strip()
     await run_image_generation(message, prompt)
 
-async def run_image_generation(message: types.Message, prompt: str):
+async def run_image_generation(message: types.Message, prompt: str, user: types.User = None):
     """Core image generation logic shared across handlers"""
-    user_id = message.from_user.id
-    add_user(user_id, message.from_user.full_name, message.from_user.username)
+    effective_user = user or message.from_user
+    user_id = effective_user.id
+    add_user(user_id, effective_user.full_name, effective_user.username)
     s = get_strings(user_id)
     
     if not prompt:
         await message.answer(s["imagine_prompt"], parse_mode="Markdown")
         return
 
+    # Determine if user is premium and log status
     premium = is_premium(user_id)
+    logging.info(f"User {user_id} premium status: {premium}")
     
     if premium:
-        wait_time = 5
+        wait_time = 5  # Premium users get fast response
         await message.answer(s["premium_wait"], parse_mode="HTML")
     else:
         # Check nudges for free users
@@ -184,17 +187,35 @@ async def run_image_generation(message: types.Message, prompt: str):
         safe_prompt = quote(enhanced_prompt)
         image_url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true&model=flux"
         
-        # Save to Gallery Database
-        save_generation(user_id, prompt, enhanced_prompt, image_url)
-        
-        # Download image to avoid "failed to get HTTP URL content" error
+                # Download image to avoid "failed to get HTTP URL content" error
         async with aiohttp.ClientSession() as session:
             async with session.get(image_url, timeout=60) as response:
                 if response.status == 200:
                     image_data = await response.read()
-                    photo = types.BufferedInputFile(image_data, filename="masterpiece.jpg")
+                    # Add watermark for free users
+                    if not premium:
+                        from PIL import Image, ImageDraw, ImageFont
+                        import io
+
+                        img = Image.open(io.BytesIO(image_data)).convert("RGBA")
+                        watermark_text = "@LuxePromptBot"
+                        width, height = img.size
+                        font_size = max(20, width // 30)
+                        try:
+                            font = ImageFont.truetype("arial.ttf", font_size)
+                        except Exception:
+                            font = ImageFont.load_default()
+                        draw = ImageDraw.Draw(img)
+                        text_width, text_height = draw.textsize(watermark_text, font=font)
+                        x = (width - text_width) / 2
+                        y = (height - text_height) / 2
+                        draw.text((x, y), watermark_text, font=font, fill=(255, 255, 255, 128))
+                        output = io.BytesIO()
+                        img.save(output, format="PNG")
+                        image_data = output.getvalue()
+                    photo = types.BufferedInputFile(image_data, filename="masterpiece.png")
                 else:
-                    photo = image_url # Fallback
+                    photo = image_url  # Fallback
         
         # Markup for Gallery and Archive
         gallery_url = "https://azizcodes1.github.io/telegbot/gallery.html"
@@ -214,7 +235,7 @@ async def run_image_generation(message: types.Message, prompt: str):
         await bot.send_photo(
             chat_id=message.chat.id,
             photo=photo,
-            caption=f"🎥 <b>Director Refinement:</b>\n<i>{escaped_prompt[:800]}</i>\n\n<b>Tier:</b> {caption_footer}",
+            caption=f"🎥 <b>Director Refinement:</b>\n<i>{escaped_prompt[:800]}</i>\n\n<b>Tier:</b> {caption_footer}\n\nCreated via @LuxePromptBot",
             parse_mode="HTML",
             reply_markup=markup
         )
@@ -539,7 +560,7 @@ async def process_confirm_gen(callback: types.CallbackQuery, state: FSMContext):
         
     await callback.message.delete()
     await state.clear()
-    await run_image_generation(callback.message, prompt)
+    await run_image_generation(callback.message, prompt, user=callback.from_user)
     await callback.answer()
 
 @dp.message(ImageStates.entering_prompt)
