@@ -147,17 +147,38 @@ async def run_image_generation(message: types.Message, prompt: str, user: types.
     # --- DIRECTOR MODE: Refining the prompt ---
     director_msg = await message.answer(s["director_mode"], parse_mode="HTML")
     try:
+        import re as _re
+        # Detect if the user wants text/letters in the image (catches "...", '...', «...» etc.)
+        text_in_image = _re.findall(r'["\u2018\u2019\u201c\u201d\u00ab\u00bb\u2039\u203a]([^"\u2018\u2019\u201c\u201d\u00ab\u00bb\u2039\u203a]{1,60})["\u2018\u2019\u201c\u201d\u00ab\u00bb\u2039\u203a]', prompt)
+        # Also detect common patterns like: spell "TEXT", text "TEXT", letters spell TEXT
+        keyword_text = _re.findall(r'(?:spell(?:s)?|text|letters?|reads?|says?|written|sign(?:s)?)[^a-zA-Z]*["\u201c\u201d]?([A-Z][A-Z\s]{1,40})["\u201c\u201d]?', prompt)
+        all_texts = list(dict.fromkeys(text_in_image + keyword_text))  # deduplicate
+        text_hint = ""
+        if all_texts:
+            quoted = ", ".join([f'"{t.strip()}"' for t in all_texts])
+            text_hint = (
+                f"CRITICAL TEXT RULE: The image MUST display the following text exactly as written: {quoted}. "
+                f"Each letter must be perfectly formed, sharp, clearly legible, and correctly spelled — no rearranging or skipping letters. "
+                f"Reinforce by stating: 'the 3D letters clearly spell {quoted}' and 'text reads exactly {quoted} with perfect letter accuracy'. "
+                f"Treat the text as large, prominent 3D physical objects in the scene. "
+            )
+
         enhancer_prompt = (
-            f"You are a world-class prompt engineer for Flux/Midjourney. "
-            f"Analyze the following user prompt: '{prompt}'. "
-            f"Rewrite it into a professional, cinematic masterpiece prompt. "
-            f"CRITICAL RULES:\n"
-            f"1. SUBJECT FOCUS: Maintain the exact subject. If it's a workstation/desk, show the whole desk in a cinematic wide shot.\n"
-            f"2. COMPOSITION: Use 'Cinematic Wide Shot', 'Product Photography', 'Elegant Lighting'. Avoid extreme macro/close-ups unless the user explicitly asked for a small detail.\n"
-            f"3. LUXURY AESTHETIC: Focus on high-end materials, reflections, and sophisticated ambient lighting (volumetric, sapphire glow).\n"
-            f"4. FACIALS: If a person is present, focus on skin texture and realistic eyes. No distortions.\n"
-            f"5. NO ADDITIONS: Do not add humans, buildings, or elements not mentioned in the original text.\n"
-            f"Output ONLY the final enhanced prompt text."
+            f"You are a world-class cinematic prompt engineer for Flux image generation. "
+            f"Your task is to transform the user's idea into a breathtaking, highly detailed image prompt.\n\n"
+            f"USER PROMPT: '{prompt}'\n\n"
+            f"STEP-BY-STEP BUILDING RULES:\n"
+            f"1. SUBJECT & SCENE: Identify the core subject. Describe it with hyper-specific visual detail — materials, textures, colors, proportions.\n"
+            f"2. ART STYLE: Identify or infer the best art style (e.g. Studio Ghibli, Hyperrealistic, Lo-Fi Digital Illustration, Cinematic Photography, Oil Painting). State it clearly.\n"
+            f"3. LIGHTING: Describe the exact lighting setup — golden hour, volumetric rays, soft rim lighting, neon glow, warm desk lamp, moonlight, etc.\n"
+            f"4. ATMOSPHERE & MOOD: Describe the emotional feel — peaceful, majestic, nostalgic, tense, dreamy, cozy, epic.\n"
+            f"5. COMPOSITION: Specify the shot type — cinematic wide shot, eye-level medium shot, low angle, bird's eye, rule of thirds, centered symmetry.\n"
+            f"6. BACKGROUND & ENVIRONMENT: Paint the background in detail — weather, time of day, location, depth-of-field blur on distant elements.\n"
+            f"7. TECHNICAL TAGS: End with quality boosters like: ultra-detailed, 8K resolution, sharp focus, vibrant colors, photorealistic textures, award-winning composition, masterpiece.\n"
+            f"8. INTEGRITY: Do NOT add elements the user did NOT mention. Preserve every element they described exactly.\n"
+            f"9. FACIAL DETAIL: If a person is present — realistic skin texture, expressive eyes, no distortion.\n"
+            f"{text_hint}\n"
+            f"Output ONLY the final enhanced prompt as a single, richly-worded paragraph. No JSON, no lists, no explanations."
         )
         enhanced_res = ai_model.generate_content(enhancer_prompt)
         enhanced_prompt = enhanced_res.text.strip()
@@ -510,12 +531,36 @@ async def process_idea_description(message: types.Message, state: FSMContext):
     status_msg = await message.answer(s["thinking"], parse_mode="HTML")
     
     try:
+        import re as _re
+        # Detect text/letters the user wants in the image
+        text_in_image = _re.findall(r'["\u2018\u2019\u201c\u201d\u00ab\u00bb\u2039\u203a]([^"\u2018\u2019\u201c\u201d\u00ab\u00bb\u2039\u203a]{1,60})["\u2018\u2019\u201c\u201d\u00ab\u00bb\u2039\u203a]', user_idea)
+        keyword_text = _re.findall(r'(?:spell(?:s)?|text|letters?|reads?|says?|written|sign(?:s)?)[^a-zA-Z]*["\u201c\u201d]?([A-Z][A-Z\s]{1,40})["\u201c\u201d]?', user_idea)
+        all_texts = list(dict.fromkeys(text_in_image + keyword_text))
+        text_hint = ""
+        if all_texts:
+            quoted = ", ".join([f'"{t.strip()}"' for t in all_texts])
+            text_hint = (
+                f"CRITICAL TEXT RULE: The image MUST contain this exact readable text: {quoted}. "
+                f"Every single letter must be sharp, well-formed, legible and correctly spelled. "
+                f"Repeat the exact text twice more in the prompt to reinforce it: "
+                f"'the text clearly reads {quoted}' and 'letters spell {quoted} with perfect accuracy'."
+            )
+
         enhancer_prompt = (
-            f"Act as a professional prompt engineer for a luxury AI. "
-            f"The user has an idea: '{user_idea}'. "
-            f"Transform this into a detailed, cinematic, high-end image generation prompt. "
-            f"CRITICAL: Output ONLY the refined prompt text. Do NOT use JSON, do NOT explain your 'thought' or 'action', "
-            f"and do NOT use code blocks. Just the plain text prompt."
+            f"You are a world-class cinematic prompt engineer for Flux image generation.\n"
+            f"The user described their idea in simple words: '{user_idea}'.\n\n"
+            f"Your task is to transform this into a breathtaking, richly detailed image generation prompt by following these steps:\n"
+            f"1. SUBJECT & SCENE: Identify the core subject. Describe it with hyper-specific visual detail — materials, textures, colors, proportions.\n"
+            f"2. ART STYLE: Choose or infer the best art style (e.g. Studio Ghibli, Hyperrealistic, Lo-Fi Digital Illustration, Cinematic Photography, Oil Painting, Anime). State it clearly.\n"
+            f"3. LIGHTING: Describe the exact lighting — golden hour glow, soft volumetric rays, warm desk lamp, moonlight, neon glow, diffused sunlight, etc.\n"
+            f"4. ATMOSPHERE & MOOD: Describe the emotional feel — peaceful, epic, cozy, nostalgic, tense, dreamy, majestic.\n"
+            f"5. COMPOSITION: Specify shot type — cinematic wide shot, medium eye-level, low angle hero shot, bird's eye, rule of thirds.\n"
+            f"6. BACKGROUND & ENVIRONMENT: Describe weather, time of day, location, depth of field on background.\n"
+            f"7. TECHNICAL QUALITY TAGS: End with: ultra-detailed, 8K resolution, sharp focus, vibrant color palette, hyper-realistic textures, award-winning composition, masterpiece.\n"
+            f"8. INTEGRITY: Only include elements the user mentioned. Never add people, objects or scenes they didn't request.\n"
+            f"9. FACIALS: If a person is present — realistic skin texture, expressive eyes, no distortion, natural proportions.\n"
+            f"{text_hint}\n\n"
+            f"Output ONLY the final enhanced prompt as one richly-worded paragraph. No JSON, no lists, no code blocks, no explanations."
         )
         res = ai_model.generate_content(enhancer_prompt)
         upgraded_prompt = res.text.strip()
